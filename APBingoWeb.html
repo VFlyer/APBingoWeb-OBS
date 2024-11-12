@@ -1,0 +1,187 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+
+</head>
+
+<body>
+    <script>
+        let server = "localhost";
+        let port = 38281;
+        let password = undefined;
+        let username = "OOTBingo"
+    </script>
+    <style>
+        * {
+            box-sizing: border-box;
+            padding: 0;
+            margin: 0;
+        }
+
+        table {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .cell {
+            background-color: #0072ff;
+
+        }
+
+        td {
+            min-width: 48px;
+            min-height: 48px;
+            text-align: center;
+        }
+
+        .cell.completed {
+            background-color: blueviolet;
+        }
+    </style>
+    <style id="computed"> </style>
+    <div id="grid"></div>
+    <script type="module">
+        import * as AP from "https://unpkg.com/archipelago.js@1.2.0/dist/index.js";
+        //import * as AP from "./ap.js";
+        let connect_info = {
+            hostname: server, // Replace with the actual AP server hostname.
+            port: port, // Replace with the actual AP server port.
+            game: "APBingo", // Replace with the game name for this player.
+            name: username, // Replace with the player slot name.
+            items_handling: AP.ITEMS_HANDLING_FLAGS.REMOTE_ALL,
+            tags: ["AP"],
+            password: password,
+            version: {
+                major: 0,
+                minor: 5,
+                build: 0
+            }
+        };
+        let ap_client = new AP.Client();
+        ap_client.addListener(AP.SERVER_PACKET_TYPE.RECEIVED_ITEMS, () => {
+            setTimeout(() => {
+                refreshGrid();
+            }, 1);
+        })
+        let connect_packet = await ap_client.connect(connect_info).catch(console.error);
+        console.log(connect_packet);
+        //Build
+        let tab = window.tab = {}
+
+        let table = document.createElement("table");
+        document.getElementById("grid").appendChild(table);
+
+        let tr = document.createElement("tr");
+        table.appendChild(tr);
+
+        for (let i = 0; i <= connect_packet.slot_data.boardSize; i++) {
+            let td = document.createElement("td");
+            if (i > 0) {
+                td.innerText = "" + i;
+            }
+            tr.appendChild(td);
+        }
+        let pos = 0;
+        for (let j = 1; j <= connect_packet.slot_data.boardSize; j++) {
+            tr = document.createElement("tr");
+            table.appendChild(tr);
+            let letter = String.fromCharCode(0x40 + j);
+            for (let i = 0; i <= connect_packet.slot_data.boardSize; i++) {
+                let td = document.createElement("td");
+                if (i > 0) {
+                    td.innerText = letter + i + ": " + connect_packet.slot_data.boardLocations[pos++];
+                    td.classList.add("cell");
+
+                }
+                else {
+                    td.innerText = letter;
+                }
+                tab[letter + i] = td;
+                tr.appendChild(td);
+            }
+        }
+
+        function refreshGrid() {
+            console.log(ap_client.items.received)
+
+
+            document.querySelectorAll("td.cell").forEach(el => {
+                el.classList.remove("completed");
+            })
+
+            for (let it of ap_client.items.received) {
+                let name = ap_client.items.name(connect_packet.slot, it.item)
+                tab[name].classList.add("completed");
+            }
+            //Validate bingo and send checks
+
+            let bingos = {
+
+            };
+
+            function readBingo(id, name) {
+                let descriptor = (name.match(/\(([^\)]+)\)/)[1]);
+                if (!bingos[descriptor]) {
+                    bingos[descriptor] = {
+                        descriptor,
+                        completed: false,
+                        checks: []
+                    }
+                }
+                bingos[descriptor].checks.push(id);
+                return name;
+            }
+
+            (ap_client.locations.checked.map(id => readBingo(id, ap_client.locations.name(connect_packet.slot, id))));
+            (ap_client.locations.missing.map(id => readBingo(id, ap_client.locations.name(connect_packet.slot, id))));
+
+            Object.values(bingos).forEach(bingo => {
+                //Check this bingo
+                if (bingo.descriptor == "ALL") {
+                    bingo.completed = document.querySelectorAll(".cell").length == document.querySelectorAll(".completed");
+                }
+                else {
+                    /**
+                     * @type {string[]}
+                     */
+                    let parts = bingo.descriptor.split("-");
+                    let letterBegin = parts[0][0];
+                    let letterEnd = parts[1][0];
+                    parts = parts.map(x => parseInt(x.substring(1)));
+                    let letterVariation = Math.sign(letterEnd.charCodeAt(0) - letterBegin.charCodeAt(0))
+                    let numVariation = (parts[1] != parts[0]) ? 1 : 0;
+                    let is_completed = true;
+                    for (let i = 0; i < connect_packet.slot_data.boardSize; i++) {
+                        let letter = String.fromCharCode(letterBegin.charCodeAt(0) + i * letterVariation);
+                        let num = parts[0] + i * numVariation;
+                        let cell = letter + num;
+                        is_completed &= !!tab[cell].classList.contains("completed");
+                    }
+                    bingo.completed = !!is_completed;
+
+                    //Send checks for that row
+                    if (bingo.completed)
+                        ap_client.locations.check(...bingo.checks);
+                }
+            })
+
+            if (Object.values(bingos).filter(x => x.completed).length >= connect_packet.slot_data.requiredBingoCount) {
+                //Trigger goal
+                ap_client.updateStatus(AP.CLIENT_STATUS.GOAL);
+            }
+
+            console.log(bingos);
+
+        }
+
+        document.getElementById("computed").innerHTML = ".cell{ color: " + connect_packet.slot_data.customText + "}" +
+            "body{ background-color: " + connect_packet.slot_data.customBoard + "}" +
+            ".cell{ background-color: " + connect_packet.slot_data.customSquare + "}" +
+            ".cell.completed{ background-color: " + connect_packet.slot_data.customHLSquare + "}";
+
+
+    </script>
+</body>
+
+</html>
