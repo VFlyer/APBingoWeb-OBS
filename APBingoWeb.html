@@ -159,11 +159,10 @@
                         is_completed &= !!tab[cell].classList.contains("completed");
                     }
                     bingo.completed = !!is_completed;
-
+                }
                     //Send checks for that row
                     if (bingo.completed)
                         ap_client.locations.check(...bingo.checks);
-                }
             })
 
             if (Object.values(bingos).filter(x => x.completed).length >= connect_packet.slot_data.requiredBingoCount) {
